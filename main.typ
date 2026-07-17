@@ -15236,12 +15236,170 @@ ldd main
 
 === Linux 终端工作流
 
-==== tmux
+终端的概念存在已久，在计算机发明之初，要将信息输入计算机，人们依靠电传打字机（Teletype）通过串口链接到计算机设备以输入命令，并在打印的纸带上查看设备输出结果。
+
+电传打字机作为终端输入的象征，在命名上被 Linux 系统所采纳。现代 Linux 系统将将终端维护为终端设备，位于其文件目录的 `/dev/tty*`，这些设备接受标准输入，并提供标准输出，充当用户的操作接口。
+
+当用户在输入设备（如键盘）上输入内容，输入设备将通过如总线的传输渠道将输入信息传递给主板，引起主板触发系统中断。内核中键盘的驱动程序提供中断处理函数，并将键盘的内容进行行规程处理#footnote[行规程是一种输入信息从输入设备到驱动程序的转义处理，例如按下退格键会被解读为删除缓冲区字符操作。]（Line Discipline）；处理后的信息（即用户指令）将被输入到 TTY 设备，以供终端执行。
+
+与此同时，内核中的显卡驱动程序将读取终端设备的输出，输出内容经处理，将被转化为图像信息写入显卡 FrameBuffer 显存，显卡再通过扫描显存将数据通过 HDMI 或 DP 线缆输送到显示器，设备即可显示画面。
+
+==== 关键终端设备
+
+- `/dev/tty0`
+  当前用户正在使用中的终端设备，对该设备进行 `echo` 写入将会在当前终端中看到自己写入的内容
+
+- `/dev/tty[1-6]`
+  系统提供的 6 个虚拟终端设备，每个设备都是一个独立工作的终端。
+
+- `/dev/ttyUSB*`
+  通过 USB 总线链接的其它终端设备，例如另一台提供终端的计算机，或者正常工作中的 CH340，等等。
+
+- `/dev/pts/N`
+  通过如 telnet，SSH 等虚拟终端协议创建的虚拟终端设备，用于远程主机对本设备终端的访问。
 
 ==== 控制符、管道符、重定向符
 
-==== 查询进程
+控制符指的是控制命令执行流程和顺序的符号
 
+#align(center)[
+  #block(
+    inset: 8pt,
+    radius: 6pt,
+    table(
+      columns: (1fr, 1fr),
+      align: center,
+      table.header(
+        [#text(weight: "bold")[控制符]],
+        [#text(weight: "bold")[作用]], 
+      ),
+      [;], [被分号分隔的各个命令将依次执行],
+      [&& ||], [被分号分隔的各个命令将依次执行，且具有短路作用],
+      [&], [命令末尾放置将使得指定进程运行在后台],
+      [() {}], [被 () 括起的命令将被移动到新的 Shell 中执行，{} 括起的命令将在这个 Shell 中成组执行。]
+    )
+  )
+]
+
+管道符，即 `|`，可以将其左方命令的标准输出作为右方命令的标准输入。
+
+重定向符则可用于操作文件，将内容在文件和标准流之间传输
+
+#align(center)[
+  #block(
+    inset: 8pt,
+    radius: 6pt,
+    table(
+      columns: (1fr, 1fr),
+      align: center,
+      table.header(
+        [#text(weight: "bold")[重定向符]],
+        [#text(weight: "bold")[作用]], 
+      ),
+      [< << <<<], [从右方目标读入文件所有内容/多行文本/单行字符串输入左方],
+      [> >>], [从左方目标读入内容写入/追加到右方文件],
+    )
+  )
+]
+在符号前加上数字 `0` `1` `2` 可以指定令某类型的内容（标准输入/正常输出/错误输出）进行传输。
+
+读取多行文本时，有必要取一个自定义符号，以标记多行文本的终结，一般使用 `EOF`
+
+```sh
+cat << EOF
+内容第一行
+内容第二行
+EOF
+```
+
+可以采用诸如 `2>&1` 的形式，将错误输出的内容也重定向到正常输出，统一处理。
+
+==== 终端内容的过滤器家族
+
+终端的工作一般遵循：获取 stdin，对信息进行处理，然后输出 stdout 的三步流程。以下常用终端工具可以在这些流程方面起到帮助
+
+- `read`
+```sh
+read -p "Enter your name: " name
+```
+read 将读取一行 stdin 输入并存储到变量中
+
+- `printf`
+```sh
+printf "%s %d\n" "name" 42
+```
+printf 将按照格式符输出字符串
+
+- `cat`
+cat 意为 concatenate，其接受多个文件参数和 stdin，并将它们拼合后输出为 stdout。该命令也可以用于中转输入输出内容。
+```sh
+cat a.txt b.txt > all.txt
+cat > script.sh << 'EOF'
+#!/bin/bash
+echo "hello"
+EOF
+```
+
+- `head` 和 `tail`
+这两个命令可以从 stdin 中取得头部或尾部几行，输出到 stdout
+```sh
+head -n 20 file.txt
+tail -n 20 file.txt
+```
+
+- `wc`
+wc 意为 word count，接受一个文件作为输入，并返回该文件的行数、单词数、字节数和文件名。
+
+- `sort`
+sort 接收文件或 stdin 作为输入，将会对文件进行按照行的重排序
+```sh
+sort -t: -k3 -n /etc/passwd # 以:分隔，按第3字段数值排序
+```
+
+- `uniq`
+uniq 接收文件或 stdin 作为输入，将会去除相邻重复行，或可使用参数显示重复的行数
+```sh
+uniq file.txt               # 去除相邻重复行
+uniq -c file.txt            # 显示每行重复次数
+uniq -w 5 file.txt          # 只比较前 5 个字符
+```
+
+- `grep`
+grep 接收文件或 stdin 作为输入，指定单词，将在内容中寻找匹配该单词的内容
+```sh
+grep "pattern" file
+grep -f keywords.txt bigfile.txt # 从文件读模式
+grep -e "error" -e "warning" -e "fatal" log.txt # 多模式 OR
+```
+
+- `sed`
+sed 意为 stream editor，可以对输入进行多项用户自定义的处理操作
+```sh
+sed 's/old/new/' file   # 每行替换第一个 old 为 new
+```
+
+- `awk`
+awk 是由 Alfred Aho, Peter Weinberger, and Brian Kernighan 创建的文本处理工具
+
+// 今后用到再说
+
+- `xargs`
+xargs 将从 stdin 读取内容并将其作为参数传递给后续命令
+```sh
+echo "file1.txt file2.txt" | xargs cat          # cat file1.txt file2.txt
+find . -name "*.log" | xargs rm                  # 删除找到的文件
+```
+
+- `tee`
+tee 将从 stdin 获取输入，将输入写入传入文件参数的同时，将内容同时输出到 stdout，起到同时向文件和输出写的作用。
+```sh
+make 2>&1 | tee build.log       # 编译输出同时显示并保存
+tee file1 file2                 # 在两个文件中复制内容 
+```
+
+==== 在终端中操作进程
+
+===== 查询进程
 - `htop`
 
   `htop` 允许用户实时查看 CPU、内存的使用情况和系统中正在运行的进程；
@@ -15260,32 +15418,120 @@ ldd main
   lsof -u [user] # 查看指定用户打开的文件
   ```
 
-==== 系统守护进程
+===== 服务管理器和系统守护进程
 
-- systemctl
+systemd 是现代 Linux 系统的服务管理器，是内核启动运行的首个进程（PID = 1）。
 
-- journalctl
+守护进程是值一系列在后台长期运行且无需控制终端的进程，如 `sshd`。所有的守护进程都受到 `systemd` 管理，`systemd` 自己也是一个守护进程。
 
+====== systemctl
 
-==== 输出处理
+`systemctl` 是一个命令行工具，用于控制 `systemd` 以管理其它的系统守护进程。常用的管理命令如下
+```sh
+# 控制
+sudo systemctl start [服务名]
+sudo systemctl stop [服务名]
+sudo systemctl restart [服务名]
+sudo systemctl reload [服务名]
 
-- `grep`
+# 查询
+systemctl status [服务名]
 
-- `aws`
+# 启停
+sudo systemctl enable [服务名]
+sudo systemctl disable [服务名]
+systemctl is-enabled [服务名]
+```
 
+在系统启动时启动的守护进程由一系列单元文件 `*.service` 定义，单元文件一般存放在 `/etc/systemd/system`（管理员定义） 或 `/usr/lib/systemd/system`（软件包定义）。一个典型的 Service 文件模板如下
+```ini
+[Unit]
+Description=说明文本
+Documentation=文档链接
 
-==== 使用 Python subprocess 进行 CLI 调用
+# 服务在什么服务激活完成后启动
+After=network-online.target
+Wants=network-online.target
 
+[Service]
+# 启动成功模型
+Type=simple
 
-==== 网络通信相关
+# 服务用户与组
+User=用户
+Group=用户组
 
-- `ss`
+# 工作目录
+WorkingDirectory=/path/to/workingdir
 
-  `ss` 可以查看系统中正在监听的网络端口和连接状态；
+# 启动时执行命令
+ExecStart=/usr/bin/python3 /opt/myapp/server.py
+# 重载时执行命令
+ExecReload=/bin/kill -HUP $MAINPID
 
-  ```sh
-  ss -tulnp # 查看正在监听的所有端口
-  ```
+# 重启策略
+Restart=on-failure
+RestartSec=5s
+
+# 最大打开文件/套接字数量
+LimitNOFILE=65536
+# 禁止提权
+NoNewPrivileges=true
+
+# 日志与标准输入输出目标
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# 服务在哪个运行级别启动（如在多用户命令行启动时启用）
+WantedBy=multi-user.target
+```
+
+以下命令可以令 `systemd` 重载单元文件，新加载的单元文件对应的进程需要手动启动
+```sh
+sudo systemctl daemon-reload
+```
+
+此外，可以用 `systemctl` 开关机或挂起休眠
+```sh
+sudo systemctl poweroff
+sudo systemctl reboot
+
+# 挂起
+sudo systemctl suspend
+# 休眠
+sudo systemctl hibernate
+```
+
+还有一点，`systemctl` 可以切换系统的运行级别，在桌面模式、终端模式以及安全模式等切换
+```sh
+systemctl get-default
+sudo systemctl set-default [目标名]
+sudo systemctl isolate [目标名]
+```
+
+- graphical.target： 图形界面模式
+- multi-user.target： 多用户文本模式
+- rescue.target： 救援模式
+- emergency.target： 紧急模式
+
+====== journalctl
+
+```ini
+# 日志与标准输入输出目标
+StandardOutput=journal
+StandardError=journal
+```
+
+未特别指明输出位置的 daemon，其标准输出总会重定向到 journalctl 工具，可以利用该工具查看守护进程的情况
+```sh
+journalctl -u nginx.service
+```
+
+==== 在终端中检查网络通信
+
+- `netstat`
+
 
 - `tcpdump`
 
@@ -15311,6 +15557,11 @@ ldd main
 - ifconfig
 
 - nmcli
+
+
+
+==== 使用 Python subprocess 进行 CLI 调用
+
 
 == 计算机高级编程语言
 
@@ -15349,18 +15600,19 @@ HTML 是一种用于创建网页的标记语言，CSS 是一种用于描述网�
 
 ==== HTML 和 CSS 的基本组织
 
-现代 Vibe Coding 如此发达的今天，HTML 和 CSS 可以被轻易生成以满足各类版式设计需求；所以接下来的文章将介绍笔者认为的 HTML 和 CSS 的基本设计理念、原则和范式，而不具体讨论各类标签和属性的使用细节。
+接下来的文章将介绍笔者认为的 HTML 和 CSS 的基本设计理念、原则和范式，而不具体讨论各类标签和属性的使用细节。
 
 ===== HTML 与元素
 
 HTML 本质是一门标记语言，其设计原则是语义化，即通过使用具有特定语义的标签来描述网页的结构和内容，以便于浏览器和搜索引擎能够更好地理解网页的意义，例如对于以下 HTML 代码
-```html
 
+```html
 <div class="article">
   <h1>这是一个标题</h1>
   <p>这是一个段落。</p>
 </div>
 ```
+
 基于标签 `<h1>` 和 `<p>` 的语义，浏览器能够理解这是一个标题和一个段落，并据此进行适当的渲染。
 
 几乎所有的标签都成对出现#footnote[也有单标签，如 `<br/>`]，每对标签及其内容可以构成一个元素。*一个 HTML 文档总是由若干个元素构成的树状结构。*
@@ -15379,7 +15631,7 @@ HTML 本质是一门标记语言，其设计原则是语义化，即通过使用
   </body>
   <footer>
     <p>无人船控制平台 西北工业大学 航海学院</p>
-    <p>Made By 罗沛然 | 2026</p>
+    <p>Made By half-tree | 2026</p>
   </footer>
 </html>
 ```
@@ -15413,104 +15665,362 @@ HTML 包含许多不同类型的元素，以承担其在版式设计中的不同
 
   用于嵌入图片、视频和其他多媒体内容，常用的标签有 `<img>`（图片元素）、`<video>`（视频元素）、`<audio>`（音频元素）；这些标签允许网页展示丰富的媒体内容。
 
-通过合理组织本部分元素，即可构建出具有清晰结构和良好语义的 HTML 文档，为完善的网页设计构建基础的要素框架。
+通过合理组织本部分元素，即可构建出具有清晰结构和良好语义的 HTML 文档。
 
 ===== CSS 的修饰能力
 
-若仅采用 HTML 来构建网页，那么网页将无法简单地进行美化和布局；CSS 的出现使得网页设计者能够通过定义样式规则来控制网页的外观和布局，从而实现更丰富的视觉效果和用户体验。
+CSS 使得网页设计者能够通过定义样式规则来控制网页的外观和布局。
 
-===== HTML 与 CSS 的标准编程接口：DOM
+尽管大模型已经具有强大的前端代码生成能力，了解基础排版设计也是有帮助的。
 
+====== 行内元素和块级元素
+
+行内元素是无需在排版上转移到下一行，和其它行内元素共享一行并自动换行的元素，如 `<span>` 和 `<a>`；块级元素则是会独占一行的元素，其宽度总是和父容器宽度一致，迫使其他元素换行，例如 `<div>`。
+
+块级元素 `display: block` 可以设置其占用块的大小，使用
+```css
+.box {
+    width: 300px;
+    height: 200px;
+    min-width: 200px;
+    max-width: 100%;
+}
+```
+
+使用 margin 可以设置外边距，padding 可以设置内边距
+```css
+.card {
+    margin: 20px 15px 20px 15px;  /* 上 右 下 左 */
+    padding: 10px 20px;           /* 上下10 左右20 */
+}
+```
+
+对于行内元素 `display: inline`，元素大小的设置、margin 和 padding 的上下设置部分将被忽略。可以采用将元素设置为 `display: inline-block` 来将元素作为行内元素的同时保留块的特性。
+
+使用 `align` 标签可以对齐元素
+```css
+.text-with-icon .icon {
+    vertical-align: middle;     /* 图标与文字中线对齐 */
+}
+```
+
+使用 `transform` 标签可以微调元素位置
+```css
+.icon {
+    display: inline-block;
+    transform: translateY(2px);   /* 下移 2px */
+}
+```
+
+使用 `justify-items`，`align-items` 来规定容器内元素的对齐方式
+```css
+.container {
+    display: grid;
+    /* 子元素在自己格子内的水平对齐 */
+    justify-items: center;    /* start | end | center | stretch(默认) */
+    /* 子元素在自己格子内的垂直对齐 */
+    align-items: center;      /* start | end | center | stretch(默认) */
+}
+```
+
+使用 `justify-self`，`align-self` 来规定自己在容器内的对齐方式
+```css
+.container {
+    /* 仅此元素在格子内的水平对齐 */
+    justify-self: end;        /* 靠右 */
+    align-self: start;        /* 顶部对齐 */
+}
+```
+
+
+====== 使用 CSS Grid 进行二维元素排布
+
+CSS Grid 可以将若干个块级元素以表格的形式分区分布到网页的各个部分#footnote[可以进一步参考 https://ruanyifeng.com/blog/2019/03/grid-layout-tutorial.html]
+
+指明一个容器为 `grid` 网格，可以使用
+```css
+.container {
+  display: grid;
+  grid-template-columns: 100px 100px 100px;
+  grid-template-rows: 100px 100px 100px;
+  grid-template-areas: "header header header"
+                      "main main sidebar"
+                      "footer footer footer";
+}
+```
+使用不同字符指明表格的不同区域。
+
+接下来，为子元素引用区域名来排版
+```css
+.header  { grid-area: header; }
+.main    { grid-area: main; }
+.sidebar { grid-area: sidebar; }
+.footer  { grid-area: footer; }
+```
+
+```html
+<div class="container">
+    <div class="header">页头</div>
+    <div class="main">主内容</div>
+    <div class="sidebar">侧栏</div>
+    <div class="footer">页脚</div>
+</div>
+```
+
+====== 使用 Flexbox 对指定子块区域进行排布
+
+Grid 将内容在平面上展开，而具体到 Grid 的一个表格项，若要在一个格子内将元素按照一个方向展开，可以利用 Flexbox 实现。
+
+指明一个容器为 `flex` 类型，该容器被认为为 Flexbox
+```css
+.flex-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+}
+```
+
+Flexbox 中的元素将按照 `flex-direction` 的方向排列，按照 `flex-wrap` 决定是否换行，并遵守对齐模式。
+
+
+====== 使用其它修饰符为 UI 添加独特风格和渐入动画
+
+现代大模型已经很擅长生成特定视觉风格的 UI，此处仅记录笔者使用过的特性
+
+- `background`
+
+要构建图片与蒙版，应当使用 `background` 系列标签。
+```css
+.glass-card {
+    background-image:
+        linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.6)), /* 半透明遮罩 */
+        url("photo.jpg");                                   /* 底图 */
+    background-size: cover;
+    background-position: center;
+}
+```
+
+- `color`
+
+要编辑颜色和透明度，采用
+```css
+.badge {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+```
+
+- `border-radius`
+
+圆角
+```css
+.frosted-panel {
+    border-radius: 16px;
+}
+```
+
+- `box-shadow`
+
+阴影
+```css
+.frosted-panel {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+```
+
+- `:hover` `:active`
+
+交互伪类，在交互时触发指定样式
+```css
+.btn {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    transition: all 0.3s ease;
+}
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(102,126,234,0.5);
+    filter: brightness(1.1);
+}
+.btn:active { transform: translateY(0); }
+```
+
+===== HTML 的标准编程接口：DOM
+
+DOM 指代 Document Object Model，即文档对象模型，是 HTML 文档的标准编程接口。
+
+DOM 将 HTML 文档标准化，令如 Javascript 一类的脚本语言能够通过 API 读取和修改文档的结构
+
+```js
+document.getElementById('app');
+el.textContent = 'hello';
+el.setAttribute('class', 'active');
+el.appendChild(child);
+```
 
 ==== Vue.js
 
-== 常见程序设计模式
+Vue.js 是流行的前端 Javascript 框架（也支持 Typescript），其通过响应式设计侦测数据变化，并产出 VNode（一种对于真实 DOM 的轻量表示），通过新旧 VNode 的对比，差分数据将被应用到真实 DOM 上。
 
+Vue.js 项目由 Vue 组件和组织它们的脚本构成。
 
-== 常用软件设计算法
+Vue 组件由 `template` `script` 和 `style` 构成，分别写有带 Vue 模板语法的 HTML、Javascript / Typescript脚本、CSS 样式文件。
 
+== 通信协议与时序逻辑汇总
 
-= 嵌入式开发知识
+了解各类通信协议的工作原理和它们的运作逻辑，对于调试它们与进行进一步设计非常重要。
 
-== 外设
+=== TCP/IP 五层模型
 
-=== 电机设备
-
-==== 无刷直流电机（BLDC）
-
-===== BLDC 的结构
-
-无刷直流电机（Brushless DC Motor，BLDC）是一种电机类型，其主要特点是没有机械刷子和换向器，而是通过电子控制器来实现电流的切换，从而驱动电机的旋转。
-
-其是一种同步电机，即电机的转子和定子磁场同步旋转；常见有单相、两相、三相等不同类型的无刷直流电机，下文主要讨论三相无刷直流电机。
-
-#figure(image("images/嵌入式开发知识/外设/BLDC结构示意图.png", width: 65%),
-  caption: [BLDC 的结构示意图]
-)
-
-BLDC 的主要结构包含转子和定子两部分，其中转子通常由永磁体构成，定子则由绕组线圈构成；当电流通过定子绕组时，会产生一个旋转磁场。
-
-#figure(image("images/嵌入式开发知识/外设/BLDC线圈效果.png", width: 85%),
-  caption: [BLDC 的线圈及其磁效应]
-)
-
-对三相无刷直流电机来说，定子绕组通常分为如图所示的三组，三组线圈分别记作 A，B，C，它们流过电流时产生的磁场分别记作 $B_A$，$B_B$，$B_C$，一般而言，这三组磁场之间的夹角为 120 度。根据磁场的叠加原理，当三组线圈同时流过电流时，产生的总磁场 $B$ 将是三组磁场的矢量和。
-$
-  B = B_A + B_B + B_C
-$
-
-对于转子而言，可以认为整个转子都处在这个总磁场 $B$ 中，那么若将该转子看作一简单条形磁铁，那么其收到的力矩 $M$ 可以表示为
-$
-  M = m B sin theta
-$
-其中 $m$ 是转子磁铁的磁矩，$theta$ 是转子磁铁与总磁场 $B$ 之间的夹角。
-
-若能够令 $theta$ 接近 $pi/2$，那么转子即可在磁场中受到有效的正向驱动力矩；若 $theta$ 接近 $(3pi)/2$，同理，转子将受到有效的反向驱动力矩；驱动转子有效正转或反转。
-
-#figure(image("images/嵌入式开发知识/外设/BLDC控制流程线.png", width: 95%),
-  caption: [BLDC 的控制流程线示意图]
-)
-
-===== 三相逆变电路和电机驱动
-
-#figure(image("images/嵌入式开发知识/外设/BLDC驱动电路.png", width: 95%),
-  caption: [BLDC 三相逆变电路]
-)
-
-如上图，是一个由 6 个 MOSFET 组成的三相逆变电路，用于驱动三相无刷直流电机；其中，U、V、W 分别对应电机的三个绕组，当 MOS 的开关状态不同时，电流将以不同的方式流过绕组，从而产生不同的旋转磁场。
-
-观察驱动电路，其由三个半桥组成，每个半桥包含两个 MOSFET，分别为高侧 MOSFET 和低侧 MOSFET；对于任何一个半桥，MOSFET 的开关状态和半桥的输出电压之间的关系如下表所示
+TCP/IP 模型是计算机网络通信中的重要模型，依据信号源到应用程序的通信链路过程分类，可以将通信分为五个板块。
 
 #align(center)[
   #block(
     inset: 8pt,
     radius: 6pt,
     table(
-      columns: (1fr, 1fr, 1fr),
+      columns: (1fr),
       align: center,
       table.header(
-        [#text(weight: "bold")[高半桥 MOSFET]],
-        [#text(weight: "bold")[低半桥 MOSFET]],
-        [#text(weight: "bold")[输出电平]]
+        [#text(weight: "bold")[应用层]],
+        [#text(weight: "bold")[传输层]],
+        [#text(weight: "bold")[网络层]],
+        [#text(weight: "bold")[数据链路层]],
+        [#text(weight: "bold")[物理层]]
       ),
-      [关闭], [关闭], [悬空],
-      [关闭], [导通], [GND],
-      [导通], [关闭], [VCC],
-      [导通], [导通], [从 VDD 到 GND 短路]
     )
   )
 ]
 
-简化分析，可以看作电机的三相电压输入 $V_A, V_B, V_C in {0, V_"DD"}$，电机的三相电压输入总是高电平或低电平，所以可以认为电机的三相输入是 PWM 输入。下文将具体讨论如何利用 PWM 三相输入构建能够令电机有效转动的旋转磁场。
+物理层定义信号的物理传输媒介，和信号在媒介上的传输方式。例如 UART 串口通信协议，协议表明在 RX/TX 上有规律的电平信号可以解释为若干 bit 位；
 
-===== 电流采样电路
+数据链路层将上述 bit 数据分为若干数据帧，以供目标接受。可选的，链路层还将为数据帧加上收发地址，进行 CRC 校验以确认数据正常传输。
 
-// 以后补充本部分内容
+网络层负责通过路由器，对子网间的数据包进行路由选择。
 
-=====
+传输层负责通过网关，在源主机和目标主机之间建立完备的通信信道。
+
+应用层定义应用程序和网络数据之间的各个接口。
+
+=== 物理层与数据链路层
+
+诸如 UART, I2C 这类协议，其规定了信号传输时使用的引脚，规定了 bit 数据如何传输，规定了一帧数据的头和尾；I2C 和 SPI 还规定了如何和指定设备进行传输。
+
+像这样对数据的传输进行规范，进行数据的帧界定，完成寻址和校验的协议，被称作物理层与数据链路层协议。
+
+==== UART
+
+UART 是全双工异步的协议，设备双方统一 VCC 与 GND 的电位，通过 RX/TX 从对方设备 接受/发送 信息。
+
+由于没有时钟，需要规定预先规定波特率 $f$，其指代 1 秒以内传输的 bit 位个数。也是数据位保持高/低电平的持续时间。
+
+UART 数据传输线默认拉高，每一帧传输携带一个字节的数据，当开始一帧的传输时，以下电平数据将会被发送
+```
+<起始位> <数据位0> <数据位1> <数据位2> <数据位3> <数据位4> ... <数据位N> <校验位> <停止位>
+```
+
+起始位将拉低数据线，以表明该帧传输开始，后多个数据位将按照从低到高依次传输，
+
+然后，校验位将被发送端自动设置，若公认的规则是奇校验，那么发送端会通过设置该位，使得数据位和校验位的 1 的总个数为奇数；偶校验同理。
+
+接收端将对所有数据和校验位作异或运算来判断数据是否有效。
+
+最终，停止位将拉高数据线，以表明该帧传输结束，这使得数据线重新空闲，下一次发送准备就绪。
+
+当前市面上最常用的串口配置为 8N1，即发送数据位为 8bit，没有校验位，仅有 1 个停止位。
+
+#line(length: 100%)
+
+单片机常用的 UART 外设由 RX/TX/GND 构成，这种硬件实现的电气标准被称为 TTL UART。
+
+在工业上实现长距离串口传输，应当使用 RS-485，RS-485 是一种特殊的电气标准，可以实现差模模式传输（平衡模式），相较于共模模式（非平衡模式），这种方式抗干扰能力更强。因为比起一个对地的 0 或 1 电平而言，用两条线上的电平差值表示 0 或 1，可以避免共模噪声的影响。
+
+RS-485 只包含 A/B 两根传输线，记 A 线上的电平和 B 上的电平之差为 $U_("AB")$，当 $U_("AB")$ 大于 200mV，认为双绞线上的数据为 1；当 $U_("AB")$ 小于 -200mV，认为双绞线上的数据为 0；在 A 与 B 的电平之差绝对值小于 200mV 时，认为总线空闲/无效。此外，RS-485 的发送电路应当至少提供 1.5V 的差分电压输出能力。
+
+由于只有一对线管理数据收发，不像 TTL UART 同时具有 RX 与 TX，所以 RS-485 实现的 UART 通信是半双工的。
+
+为了防止两个设备写同一个总线出现冲突，Modbus RTU 是基于 UART 改造的新应用层协议，基于 UART 的字符传输机制，它依靠总线上空闲的时间片段来判断数据帧的起始和结束，同时规定了类似于 I2C 的从机地址和功能码传输范式。
+
+==== I2C
+
+I2C 是多主多从的两线式半双工通信协议，设备双方统一 VCC 与 GND 的电位，通过 SCL 共享时钟，并通过 SDA 数据总线传输信息。
+
+I2C 的 SCL 与 SDA 是开漏输出，这使得总线具有线与特性，一台设备拉低总线将导致总线被拉低。
+
+SDA 总线默认拉高，SCL 时钟由发起通信的主机提供，每一次对从机的通信都可以携带若干字节的数据，每一次通信的流程如下
+```
+<开始信号> <地址+读写操作> <从机 ACK> <一方发送字节数据> <另一方ACK> <一方发送字节数据> <另一方ACK> ... <停止信号>
+```
+
+开始信号是由主机发送的一个特殊信号，要发起一个开始信号，必须要主机在 SCL 处于高电平时，拉低 SDA。
+
+接下来，发送一个八位数据，该数据从大到小由要通信设备的 7 位地址和 1 位操作码（主机要写为 0，要读为 1）拼接而成。
+
+数据的发送方式为：主机将在 SCL 为低时，改变 SDA 为 0 或 1 表示数据，从机将在 SCL 高电平时读取 SDA 以读取位#footnote[注意，发送数据时，当 SCL 处于高电平，SDA 不能改变。因为若在 SCL 高电平时改变信号，这将被认为是一次特殊的开始/停止信号，参考它们的定义。]。这八位数据将在开始信号后的之后八次 SCL 发送到总线。
+
+发送成功后，符合地址的从机必须回应，这被称作 ACK，从机将在准备好后，在某次 SCL 低电平拉低总线。主机将认为这种信号是从机成功响应。
+
+在前三步顺利执行后，依据主机希望进行读或写操作，以下操作将会发生。
+
+若主机处在写模式，那么主机将进一步发送一字节数据，从机接受一字节，并回复一次 ACK，这允许主机进一步发送数据，如此主机发送若干字节数据后，发送一个停止信号进行停止。
+
+若主机处在读模式，那么从机将发送一字节数据，主机接受一字节，并回复一次 ACK，这允许从机进一步发送数据，如此从机发送若干字节数据后，主机最后想要停止接受时，将做一次 NACK（即在 SCL 高电平时不拉低总线），此时从机将停止发送数据，随后主机发送停止信号进行停止通信。
+
+停止信号是由主机发送的一个特殊信号，要发起一个停止信号，必须要主机在 SCL 处于高电平时，拉高 SDA。
+
+#line(length: 100%)
+
+许多传感器流行的 IIC 通信模式为“读写寄存器”模式，这是一种特殊的范式，将主机的读写操作映射为对设备的“虚拟寄存器”的读写操作。类似于 ROS 中的参数（Params）服务器的概念。
+
+该模式假设从设备维护一系列寄存器，每个寄存器都具有一个独特地址，主机通过读/写寄存器来得到从机的反馈/改变从机的工作参数。
+
+常见的寄存器操作时序图如下
+
+#figure(image("images/计算机与工程知识/通信协议/I2C时序.png"),
+  caption: [
+    I2C 中读写寄存器范式的操作顺序图
+  ]
+)
+
+另外，可以注意到，在这个范式中，在主机读取寄存器时，先写了寄存器地址，完成写地址后，并未发送停止信号，而是直接开始了读过程，这被称作 Repeated START 操作，在有相关定义的设备中是合法的。
+
+不同的 IIC 设备对于 IIC 操作的实际意义有不同规定，使用时必须以设备的 datasheet 为准。
+
+==== SPI
+
+SPI 是一主多从的四线式全双工通信协议，除了 VCC 和 GND 电平统一，还有三根总线 SCLK, MOSI, MISO 连接在主从设备之间。同时，每一个从设备都接入一根 CSx 片选线，所有的片选线都和主机连接，用于稍后提及的寻址机制。
+
+当主机要和某个设备通信，那么主机将将连接那个设备的 CS 线拉低，此时设备将开始工作于从机模式。
+
+然后，SCLK 上将由主机生成时钟信号，接下来，主机将在 MOSI 上工作在推挽输出模式发送内容，同时监听 MISO；从机将在 MISO 上工作在推挽模式，同时监听 MOSI。
+
+每个时钟周期内，SPI 总线上都将双向传递一位数据，在一个 SCLK 时钟周期内，允许电平改变的时间被称作空闲时间，接收者采样的时刻被称作采样时刻。发送者将在空闲时间内将电平拉到想要的数据，接收者将在采样时刻读取发送的数据。
+
+SPI 允许用户自定义空闲时间和采样时刻，最常用的模式为低电平空闲，上升沿采样，这也被称作 Mode 0，实际生产环境中的模式应当参考从设备的 datasheet。
+
+==== Ethernet 与 MAC 地址
+
+以太网是常用的设备间通信方式，其中，Ethernet 帧规定了以太网信息的物理传递方式，MAC 地址则在数据链路层为信息的分帧和寻址以及校验起到了关键作用。
+
+以太网线是一种 4 对双绞线（共 8 芯）构成的综合传输线，两对双绞线中，颜色相同的两根线互为绞线，且其中带有白色花纹的是 + 线，另一根纯色的为 - 线。八根线按照指定的顺序接入水晶头（RJ45），形成可以接入标准以太网口的网线。
+
+对于网线而言，其通信波特率固定，常见的有 10Mbps, 100Mbps, 1000Mbps，前两者仅会用到橙色和绿色两对双绞线，后者会用到所有双绞线；此外，网线还支持 PoE 供电技术，这种技术是将网线同时作为电源传输线，具体是在数据线上叠加直流电压，或使用空闲数据线传递直流电。
+
+两端的以太网设备连接时，双方将通过链路脉冲和自协商，来互相交换自身支持的波特率和 PoE 情况，完成协商后，双方将统一波特率和通信绞线。
+
+接下来，一系列 bit 数据将会被按照一定的帧格式传递，格式如下：
+
+```
+
+```
 
 
-= 娱乐
+MAC 控制器是一种硬件设备，其封装在 MCU 内部或者独立 MAC 芯片中。MAC 芯片
 
 
+=== 网络层协议
 
+=== 传输层协议
+
+=== 应用层协议
