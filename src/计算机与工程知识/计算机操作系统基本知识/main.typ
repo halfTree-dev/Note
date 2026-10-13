@@ -296,10 +296,6 @@ sed 意为 stream editor，可以对输入进行多项用户自定义的处理�
 sed 's/old/new/' file   # 每行替换第一个 old 为 new
 ```
 
-- `awk`
-awk 是由 Alfred Aho, Peter Weinberger, and Brian Kernighan 创建的文本处理工具
-
-// 今后用到再说
 
 - `xargs`
 xargs 将从 stdin 读取内容并将其作为参数传递给后续命令
@@ -313,6 +309,91 @@ tee 将从 stdin 获取输入，将输入写入传入文件参数的同时，将
 ```sh
 make 2>&1 | tee build.log       # 编译输出同时显示并保存
 tee file1 file2                 # 在两个文件中复制内容 
+```
+
+==== 使用 tmux 管理终端
+
+tmux 是一个终端复用器，可以在单个终端窗口中创建多个会话，并在会话之间切换。tmux 可以在终端窗口关闭后继续运行，并且可以在多个终端窗口中共享同一个会话。
+
+tmux 的基本操作如下：
+- `tmux new -s session_name` 创建一个新的会话
+- `tmux attach -t session_name` 连接到一个已存在的会话
+- `tmux ls` 列出所有会话
+
+- `tmux kill-session -t session_name` 杀死一个会话
+- `tmux switch -t session_name` 切换到一个会话
+
+在 tmux 中，可以使用以下快捷键进行操作
+- `Ctrl + b` 进入 tmux 命令模式
+- `d` 分离出当前会话
+- `s` 列出所有会话
+
+- `c` 创建一个新的窗口
+- `w` 列出所有窗口
+- `&` 删除当前窗口
+
+- `%` 纵向分割当前窗口
+- `"` 横向分割当前窗口
+
+- `z` 暂时全屏/恢复当前窗口
+- `x` 关闭当前窗口
+
+- `[` 在当前窗口进入滚屏模式，按下 `q` 退出
+
+==== 在终端中确认系统基本信息
+
+===== 内核版本
+
+```sh
+root@lubancat:~# lsb_release -a
+No LSB modules are available.
+Distributor ID: Debian
+Description:    Debian GNU/Linux 10 (buster)
+Release:        10
+Codename:       buster
+root@lubancat:~# hostnamectl
+   Static hostname: lubancat
+         Icon name: computer
+        Machine ID: 031ed1f58e49423da35c647bbcf5eeff
+           Boot ID: 8630b72e80014a30b9837e56e791c460
+  Operating System: Debian GNU/Linux 10 (buster)
+            Kernel: Linux 4.19.232
+      Architecture: arm64
+```
+
+===== 驱动信息
+
+可以通过读取 `/proc/config.gz` 来检查内核编译时的驱动配置
+```sh
+zcat /proc/config.gz
+```
+
+例如查询 USB 串口设备驱动的编译情况
+```sh
+zcat /proc/config.gz | grep -E "USB_SERIAL|CH341|USB_ACM"
+```
+
+`/proc` 目录是一个伪文件系统，提供诸多和内核数据结构的接口。
+
+===== 用户信息
+
+对于系统中的用户，可以使用 `usermod` 来更改其信息（作为 root）
+```sh
+# 将 oldname 用户更名为 newname 并迁移 /home/oldname 到 /home/newname
+usermod -l newname -d /home/newname -m oldname
+# 将用户 alice 加入到 sudo 组中
+usermod -aG sudo alice
+```
+
+可以使用 `useradd` 来添加新用户
+```sh
+useradd -m -s /bin/bash bob
+passwd bob
+```
+
+使用 `passwd` 来更改指定用户的密码
+```sh
+passwd charlie
 ```
 
 ==== 在终端中操作进程
@@ -453,6 +534,16 @@ journalctl -u nginx.service
 
 networkctl 命令是 systemd-networkd 的一个命令行工具，用于查询网络连接的状态。它可以显示所有连接的状态，也可以显示指定接口的状态。
 
+查询状态
+```sh
+networkctl list
+```
+
+重新阅读配置文件
+```sh
+sudo systemctl restart systemd-networkd
+```
+
 由 systemd-networkd 进行网络配置的网络配置文件位于 `/etc/systemd/network`
 
 ```ini
@@ -471,7 +562,54 @@ Name=enp2s0
 Address=192.168.1.100/24
 Gateway=192.168.1.1
 DNS=8.8.8.8
+# 当有 Domains=~. 字段时，域名查询将优先通过该字段
+Domains=~.
 ```
+
+有多个网卡设备时，要指定流量通过优先级，使用 `RouteMetric`，字段越小优先级越大，仅在一些新版本内核上有
+```ini
+[DHCPv4]
+RouteMetric=300
+# 当有 UseDNS 时，手动设置的 DNS 地址将优先生效
+UseDNS=yes
+```
+
+systemd-networkd 可以配置某设备为 DHCPv4 Server
+```ini
+[Match]
+Name=eth1
+
+[Network]
+Address=192.168.137.1/24
+DHCPServer=yes
+IPv6AcceptRA=no
+
+[Link]
+RequiredForOnline=no
+
+[DHCPServer]
+# 指定地址池
+# 此处为 192.168.137.100~199（相对接口地址的偏移+数量）
+PoolOffset=99
+PoolSize=100
+DefaultLeaseTimeSec=43200
+MaxLeaseTimeSec=43200
+
+# 按 MAC 锁定设备并分配指定地址（需要 Ubuntu 22.10+ 或 Debian 12+）
+DHCPServerStaticLease=5a:5a:02:7f:ba:ad 192.168.137.50
+
+# 网关通告默认开启
+# 这表明本机无 DNS
+EmitDNS=no
+```
+
+可以通过
+```sh
+man systemd.network
+```
+来查找可用的字段。
+
+有时，当 NetworkManager 被关闭，而 networkd 又没有显示指定某设备的管理规则，则设备会被弃置。
 
 ====== dnsmasq
 
@@ -526,35 +664,192 @@ subnet 192.168.56.0 netmask 255.255.255.0 {
 
 ==== 在终端中检查网络通信
 
-- `netstat`
+===== curl
+
+curl 支持通过包含 HTTP、HTTPS、FTP、SFTP 在内的绝大部分网络通信传输层协议来进行数据传输。
+
+例如请求指定网站的内容
+```sh
+curl http://www.baidu.com
+```
+
+发送 POST 或者 GET 请求到网站，附带消息头#footnote[GET 是一种附带在 URL 上的请求方法，用于向服务器以 HTTP 为传输协议请求信息。POST 是一种放置于 HTTP 正文中的请求方法，一般用于提交数据并发起请求的场合。]
+```sh
+# POST
+curl -d "name=John" https://example.com
+# GET
+curl -G -d "q=keyword" https://search.com
+# Header
+curl -H "Content-Type: application/json" https://api.com
+```
+
+保存到文件
+```sh
+curl -o output.html http://info.cern.ch/
+```
+
+查看细节过程
+```sh
+curl -v http://info.cern.ch/
+```
+
+指定网络设备发起并接受流量
+```sh
+sudo curl --interface 'if!wwan0' --connect-timeout 10 -v http://223.5.5.5
+```
+
+===== ping
+
+ping 将向目标主机发送 ICMP 回显请求#footnote[ICMP，互联网控制报文协议，是 IP 协议的一部分；其不直接传递信息，而是通过发送和接收控制消息，如网络是否通畅、主机是否可达、路由是否可用等信息帮助网络管理员维护网络的正常运行。由于其是网络层协议，故没有特定的端口号绑定。]，并接收回显应答来判断网络是否可达。被测试的目标可以是 IPv4 地址，也可以是域名（若网络中有 DNS 服务器可以解析）。
+
+```sh
+ping 192.168.50.1
+```
+
+可以通过 `-c` 参数指定发送数据包数量，`-i` 指定发送间隔秒数。`-I` 指定发送接口设备（如 `eth0`）。
+
+===== ip
+
+ip 是网络配置工具
+
+要操作网络接口，可以使用
+```sh
+ip link show
+ip link set eth0 up
+ip link set eth0 down
+```
+
+要查看设备分配的 IP 地址
+```sh
+ip addr show
+ip addr show eth0
+```
+
+要添加/删除 IP 地址
+```sh
+ip addr add 192.168.0.10/24 dev eth0
+ip addr del 192.168.0.10/24 dev eth0
+```
+
+要操作路由
+```sh
+ip route show
+ip route add default via 192.168.1.1
+ip route add default via 192.168.10.1 dev eth0 metric 500
+ip route del default
+```
+
+要查看 ARP 表#footnote[ARP 协议是获取对应当前局域网中 IP 地址的 MAC 地址的协议，当要通过 IP 访问指定设备时，首先通过查表来获取设备的 MAC 地址；若没有，那么 ARP 数据包将广播给所有连接的主机，以寻求帮助来获取指定设备的 MAC 地址，当某一设备的 IP 地址符合请求，那么 ARP 回传数据包将包含该设备的 MAC 地址]以观察邻居
+```sh
+ip neigh show
+```
+
+===== dig 与 nslookup
+
+dig 与 nslookup 用于检查 DNS 解析是否可用
+
+```sh
+sudo apt update && sudo apt install dnsutils
+```
+
+常用的命令格式为
+```sh
+nslookup www.bing.com 8.8.8.8
+dig @8.8.8.8 www.baidu.com +short +time=2 +tries=1
+```
+
+===== 检查 SSH 终端
+
+SSH是一种网络协议，用于计算机之间的加密登录。Ubuntu 上用于主持 SSH 服务的进程为 `ssh`，由 `openssh-server` 包提供。
+
+```sh
+systemctl status ssh
+```
+
+正常运行的服务应当监听 22 端口。
+
+```sh
+root@lubancat:~# sudo ss -tlnp | grep :22
+LISTEN    0         0                  0.0.0.0:22               0.0.0.0:*        users:(("sshd",pid=1702,fd=3))
+LISTEN    0         0                        *:22                     *:*        users:(("sshd",pid=1702,fd=4))
+```
+
+===== tcpdump 检查网络数据流
+
+`tcpdump` 是一个网络数据包分析工具，可以捕获和分析网络流量（不仅是 TCP），其命令格式为
+```sh
+tcpdump [option] [proto] [dir] [type] addr
+```
+
+其中 type 可以填写 host, net 等选项，表明 addr 的目标地址类型，是一个主机地址（如 192.168.137.1）或一个网段#footnote[网段指的是一个 IP 地址范围，其中的 /24 代表前 24 位固定，即子网掩码为 255.255.255.0]地址（如 192.168.137.0/24）。也可以填写 port 选项，表明 addr 是一个端口号（如 80）；
+
+dir 可以填写 src, dst, src or dst 等选项，表明 addr 的目标地址方向，是一个源地址还是一个目的地址；
+
+proto 可以填写 tcp, udp, icmp 等选项，表明要捕获的协议类型；
+
+上述过滤条件可以使用 `and` `or` `not` 关键字进行逻辑组合。使用 `-w` 可以将输出结果写入文件。
+
+分析指定 Host 上的数据流
+```sh
+sudo tcpdump -ni wwan0 'tcp and host 223.5.5.5'
+```
+
+分析指定网络设备的指定数据流
+```sh
+sudo timeout 12 tcpdump -ni wwan0 tcp &
+```
+
+```sh
+sudo tcpdump -i eth1 -nn -e -v
+```
+
+例：从其他设备抓取得到 ARP 请求如下：
+```sh
+22:29:22.400482 5a:5a:02:7f:ba:ad > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Ethernet (len 6), IPv4 (len 4), Request who-has 192.168.0.1 tell 192.168.0.114, length 46
+```
+表明该设备正在以 `192.168.0.114` 请求网关 `192.168.0.1` 的地址。
+
+例：从其它设备抓取得到 DHCP Discovery 请求如下：
+```sh
+0.0.0.0.68 > 255.255.255.255.67: BOOTP/DHCP, Request from 5a:5a:02:7f:ba:ad, length 300, xid 0xdd4dbc72, secs 3, Flags [none]
+      Client-Ethernet-Address 5a:5a:02:7f:ba:ad
+      Vendor-rfc1048 Extensions
+        Magic Cookie 0x63825363
+        DHCP-Message Option 53, length 1: Discover
+        Client-ID Option 61, length 7: ether 5a:5a:02:7f:ba:ad
+        MSZ Option 57, length 2: 576
+        Parameter-Request Option 55, length 7: 
+          Subnet-Mask, Default-Gateway, Domain-Name-Server, Hostname
+          Domain-Name, BR, NTP
+        Vendor-Class Option 60, length 12: "udhcp 1.26.2"
+        Hostname Option 12, length 5: "IPCAM"
+```
+表明该设备正在作为 DHCP 客户端，以 Option = 53（即 Discovery Mode）搜索对面的 DHCP 服务器。
 
 
-- `tcpdump`
+==== 在终端中传输数据和文件
 
-  `tcpdump` 是一个网络数据包分析工具，可以捕获和分析网络流量（不仅是 TCP），其命令格式为
-  ```sh
-  tcpdump [option] [proto] [dir] [type] addr
-  ```
+===== scp
 
-  其中 type 可以填写 host, net 等选项，表明 addr 的目标地址类型，是一个主机地址（如 192.168.137.1）或一个网段#footnote[网段指的是一个 IP 地址范围，其中的 /24 代表前 24 位固定，即子网掩码为 255.255.255.0]地址（如 192.168.137.0/24）。也可以填写 port 选项，表明 addr 是一个端口号（如 80）；
+scp 指代 Secure Copy Protocol，即安全复制协议，通过 SSH 协议进行远程文件传输，运行于 22 端口上。
 
-  dir 可以填写 src, dst, src or dst 等选项，表明 addr 的目标地址方向，是一个源地址还是一个目的地址；
+类似于进行文件复制的 cp 指令，scp 指明位于本地或者远程的文件与地址，进行跨设备传送
 
-  proto 可以填写 tcp, udp, icmp 等选项，表明要捕获的协议类型；
+```sh
+# Linux → Linux
+scp /local/path/file user@l_addr:/path/to/target/
+# Linux → Windows
+scp /local/path/file user@w_addr:/C:/path/to/target/
+# Windows → Linux
+scp C:\local\path\file user@l_addr:/path/to/target/
+# Windows → Windows
+scp C:\local\path\file user@w_addr:/C:/path/to/target/
+```
 
-  上述过滤条件可以使用 `and` `or` `not` 关键字进行逻辑组合。
-
-  使用 `-w` 可以将输出结果写入文件。
-
-- nmap
-
-- ip
-
-- ifconfig
-
-- nmcli
-
-
+对于 SSH 开放在非 22 端口上的设备，使用 `-P` 参数
+```sh
+scp -P 22 /local/path/file user@l_addr:/path/to/target/
+```
 
 ==== 使用 Python subprocess 进行 CLI 调用
 

@@ -29,6 +29,8 @@ C 语言是一种通用的、面向过程式的计算机程序设计语言，其
 
 === Javascript & TypeScript
 
+// ref 属性可以映射 HTML 组件为 ref 对象
+
 === CSharp
 
 
@@ -304,4 +306,6 @@ Vue.js 是流行的前端 Javascript 框架（也支持 Typescript），其通�
 Vue.js 项目由 Vue 组件和组织它们的脚本构成。
 
 Vue 组件由 `template` `script` 和 `style` 构成，分别写有带 Vue 模板语法的 HTML、Javascript / Typescript脚本、CSS 样式文件。
+
+===== Vue 组件的组合
 
